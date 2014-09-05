@@ -61,12 +61,14 @@ final class Router
 	public static function execute($url)
 	{
 		
-		// Se miran los parametros por seguridad
-        str_replace(array('\\', '/../', '//'), '', $url, $errors);
+		// Se miran los parámetros por seguridad
+        if (stripos($url, '/../') !== false)
+			throw new KumbiaException("Posible intento de hack en URL: '$url'");
+			// Si hay intento de hack TODO: añadir la ip y referer en el log
         
-        // Si hay intento de hack TODO: añadir la ip y referer en el log
-        if ($errors) throw new KumbiaException("Posible intento de hack en URL: '$url'");
-        
+        self::$_vars['route'] = $url;
+        //Método usado
+        self::$_vars['method'] = $_SERVER['REQUEST_METHOD'];
         //Si config.ini tiene routes activados, mira si esta routed
         if (Config::get('config.application.routes')) {
             $url = self::_ifRouted($url);
@@ -116,10 +118,6 @@ final class Router
     private static function _rewrite($url)
     {
         //Valor por defecto
-        self::$_vars['route'] = $url;
-        //Métod usado
-        self::$_vars['method'] = $_SERVER['REQUEST_METHOD'];
-
         if ($url == '/') return;
 
         //Se limpia la url, en caso de que la hallan escrito con el último parámetro sin valor, es decir controller/action/
@@ -167,11 +165,11 @@ final class Router
         if (!include_once APP_PATH . "controllers/$controller_path" . '_controller.php')
             throw new KumbiaException(null, 'no_controller');
 
-        //Asigna el controlador activo
-        $app_controller = Util::camelcase($controller) . 'Controller';
-        $cont = new $app_controller($module, $controller, $action, $parameters);
         View::select($action); //TODO: mover al constructor del controller base las 2 lineas
         View::setPath($controller_path);
+		//Asigna el controlador activo
+        $app_controller = Util::camelcase($controller) . 'Controller';
+        $cont = new $app_controller($module, $controller, $action, $parameters);
 
         // Se ejecutan los filtros initialize y before
         if ($cont->k_callback(true) === false) {
@@ -218,47 +216,13 @@ final class Router
 
     /**
      * Enruta el controlador actual a otro módulo, controlador, o a otra acción
-     * @deprecated
+     * @deprecated  Ahora Redirect::route_to()
      * @example
      * Router::route_to("module: modulo", "controller: nombre", "action: accion", "parameters: 1/2")
      */
     public static function route_to()
     {
-        static $cyclic = 0;
-        self::$_routed = true;
-        $url = Util::getParams(func_get_args());
-
-        if (isset($url['module'])) {
-            self::$_vars['module'] = $url['module'];
-            self::$_vars['controller'] = 'index';
-            self::$_vars['action'] = 'index';
-            self::$_vars['parameters'] = array();
-            self::$_vars['controller_path'] = $url['module'] . '/index';
-        }
-
-        if (isset($url['controller'])) {
-            self::$_vars['controller'] = $url['controller'];
-            self::$_vars['action'] = 'index';
-            self::$_vars['parameters'] = array();
-            self::$_vars['controller_path'] = (isset($url['module'])) ? $url['module'] . '/' . $url['controller'] : $url['controller'];
-        }
-
-        if (isset($url['action'])) {
-            self::$_vars['action'] = $url['action'];
-            self::$_vars['parameters'] = array();
-        }
-
-        if (isset($url['parameters'])) {
-            self::$_vars['parameters'] = explode('/', $url['parameters']);
-        } elseif (isset($url['id'])) {
-            // Deprecated
-            self::$_vars['parameters'] = array($url['id']);
-        } else {
-            self::$_vars['parameters'] = array();
-        }
-
-        if (++$cyclic > 1000)
-            throw new KumbiaException('Se ha detectado un enrutamiento cíclico. Esto puede causar problemas de estabilidad');
+        call_user_func_array(array('Redirect', 'route_to'), func_get_args());
     }
     
     /**
@@ -288,36 +252,27 @@ final class Router
     /**
      * Redirecciona la ejecución a otro controlador en un
      * tiempo de ejecución determinado
-     * @deprecated
+     * @deprecated  Ahora Redirect::to()
      *
      * @param string $route
      * @param integer $seconds
      */
     public static function redirect($route = null, $seconds = null)
     {
-        if (!$route)
-            $route = self::$_vars['controller_path'] . '/';
-			$route = PUBLIC_PATH . ltrim($route, '/');
-        if ($seconds) {
-            header("Refresh: $seconds; url=$route");
-        } else {
-            header("Location: $route");
-            $_SESSION['KUMBIA.CONTENT'] = ob_get_clean();
-            View::select(null, null);
-        }
+        Redirect::to($route, $seconds);
     }
 
     /**
      * Redirecciona la ejecución a una accion del controlador actual en un
      * tiempo de ejecución determinado
-     * @deprecated
+     * @deprecated Ahora Redirect::toAction()
      * 
      * @param string $action
      * @param integer $seconds
      */
     public static function toAction($action, $seconds = null)
     {
-        self::redirect(self::$_vars['controller_path'] . "/$action", $seconds);
+        Redirect::toAction($action, $seconds);
     }
 	
 	/**
